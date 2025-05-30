@@ -22,7 +22,9 @@ jobs:
           password: ${{ secrets.DOCKER_TOKEN }}
       - name: Generate image tag
         id: vars
-        run: echo "TAG=$(date +'%Y%m%d-%H%M%S')" >> $GITHUB_OUTPUT"
+        run: |
+          TAG=$(date +'%Y%m%d-%H%M%S')
+          echo "TAG=$TAG" >> "$GITHUB_OUTPUT"
       - name: Build and push docker image
         uses: docker/build-push-action@v4
         with:
