@@ -36,8 +36,8 @@ jobs:
         uses: appleboy/ssh-action@v1.0.0
         with:
           host: ${{ secrets.SSH_SERVER }}
-          username: ${{ SSH_USER }}
-          password: ${{ SSH_PASS }}
+          username: ${{ secrets.SSH_USER }}
+          password: ${{ secrets.SSH_PASS }}
           script: |
             docker pull ${{ secrets.DOCKER_USERNAME }}/product-service:latest
             cd /root/backend/micro-ecom
