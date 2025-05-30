@@ -34,10 +34,7 @@ jobs:
           tags: |
             ${{ secrets.DOCKER_USERNAME }}/webconfig-service:latest
             ${{ secrets.DOCKER_USERNAME }}/webconfig-service:${{ steps.vars.outputs.TAG }}
-  deploy:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Recreate service
+      - name: Deploy to server via SSH
         uses: appleboy/ssh-action@v1.0.0
         with:
           host: ${{ secrets.SSH_SERVER }}
