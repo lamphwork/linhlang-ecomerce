@@ -1,0 +1,1 @@
+create index idx_product_cat on product(category_id)

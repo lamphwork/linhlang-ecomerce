@@ -1,14 +1,15 @@
 package linhlang.product;
 
-import linhlang.commons.Starter;
+import linhlang.commons.CommonWebApp;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 
+@CommonWebApp
 @SpringBootApplication
 public class ProductApplication {
 
     public static void main(String[] args) {
-        Starter.webApp(ProductApplication.class).run(args);
+        SpringApplication.run(ProductApplication.class, args);
     }
 
 }

@@ -3,5 +3,8 @@
   <component name="SqlDialectMappings">
     <file url="file://$PROJECT_DIR$/product/src/main/resources/db/migration/V01__init_product_tbls.sql" dialect="MySQL" />
     <file url="file://$PROJECT_DIR$/product/src/main/resources/db/migration/V03__add_img_order.sql" dialect="MySQL" />
+    <file url="file://$PROJECT_DIR$/product/src/main/resources/db/migration/V09__index_create_time_product.sql" dialect="MySQL" />
+    <file url="file://$PROJECT_DIR$/product/src/main/resources/db/migration/V10__index_query_product.sql" dialect="MySQL" />
+    <file url="file://$PROJECT_DIR$/product/src/main/resources/db/migration/V11__index_category_tbl.sql" dialect="MySQL" />
   </component>
 </project>

@@ -4,7 +4,12 @@ import linhlang.commons.exceptions.ExceptionInfo;
 
 public enum Errors implements ExceptionInfo {
 
-    PRODUCT_NOTFOUND("PROD_404", "Product not found"),
+    PRODUCT_NOTFOUND("PRODUCT_NOTFOUND", "Product not found"),
+    PRODUCT_EXISTED("PRODUCT_EXISTED", "Product existed"),
+    PROVIDER_NOTFOUND("PROVIDER_NOTFOUND", "Provider not found"),
+    CATEGORY_NOTFOUND("CATEGORY_NOTFOUND", "Category not found"),
+    CATEGORY_EXISTED("CATEGORY_EXISTED", "Category not existed"),
+    COLLECTION_NOTFOUND("COLLECTION_NOTFOUND", "Collection not found"),
 
     ;
     public final String code;

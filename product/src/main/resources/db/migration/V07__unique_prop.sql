@@ -1,0 +1,1 @@
+create unique index idx_props_uniq on properties(variant_id, attribute);

@@ -4,15 +4,15 @@ import org.mapstruct.MappingTarget;
 
 import java.util.List;
 
-public interface BaseMapper<E, M> {
+public interface BaseMapper<E, R> {
 
-    M toModel(E e);
+    R toModel(E e);
 
-    List<M> toModel(List<E> e);
+    List<R> toModel(List<E> e);
 
-    E toEntity(M m);
+    E toEntity(R r);
 
-    List<E> toEntity(List<M> m);
+    List<E> toEntity(List<R> r);
 
-    void update(@MappingTarget E e, M model);
+    void update(@MappingTarget E e, R model);
 }

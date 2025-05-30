@@ -1,0 +1,1 @@
+alter table blog add page_interface    varchar(200);

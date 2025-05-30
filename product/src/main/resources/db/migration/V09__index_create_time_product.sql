@@ -1,0 +1,1 @@
+create index idx_product_create_time on product(create_time);

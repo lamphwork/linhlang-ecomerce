@@ -9,7 +9,7 @@ import org.springframework.http.ResponseEntity;
 public class ResponseUtils {
 
     public static <T> ResponseEntity<ApiResponse<T>> wrap(HttpStatus status, String code, String message, T data) {
-        ApiResponse<T> response = new ApiResponse();
+        ApiResponse<T> response = new ApiResponse<>();
         response.setResponseCode(code);
         response.setResponseMessage(message);
         response.setPayload(data);

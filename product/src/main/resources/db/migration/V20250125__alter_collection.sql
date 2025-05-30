@@ -1,0 +1,1 @@
+alter table collection add ui varchar(200);

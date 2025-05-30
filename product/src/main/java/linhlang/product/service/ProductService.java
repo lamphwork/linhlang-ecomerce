@@ -1,8 +1,13 @@
 package linhlang.product.service;
 
+import linhlang.commons.model.PageData;
 import linhlang.product.controller.request.ProductSaveReq;
+import linhlang.product.controller.request.QueryProductReq;
+import linhlang.product.model.Image;
 import linhlang.product.model.Product;
+import org.springframework.web.multipart.MultipartFile;
 
+import java.io.IOException;
 import java.util.List;
 
 public interface ProductService {
@@ -13,6 +18,10 @@ public interface ProductService {
 
     Product detail(String productId);
 
-    List<Product> query();
+    Product delete(String productId);
+
+    PageData<Product> query(QueryProductReq request);
+
+    List<Image> uploadImages(String product, MultipartFile[] files) throws IOException;
 
 }

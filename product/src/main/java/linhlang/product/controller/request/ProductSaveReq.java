@@ -30,6 +30,9 @@ public class ProductSaveReq {
     @Length(max = 5000)
     private String description;
 
+    @Length(max = 255)
+    private String quote;
+
     @Valid
     private Set<Image> images = new HashSet<>();
 
@@ -41,8 +44,17 @@ public class ProductSaveReq {
     private BigDecimal comparePrice;
 
     @Valid
-    private Set<Property> properties = new HashSet<>();
+    private SEOData seo;
+
+    @Length(max = 100)
+    private String size;
+
+    @Length(max = 100)
+    private String weight;
 
     @Valid
     private Set<Collection> collections = new HashSet<>();
+
+    @Valid
+    private Set<SaveVariantReq> variants = new HashSet<>();
 }

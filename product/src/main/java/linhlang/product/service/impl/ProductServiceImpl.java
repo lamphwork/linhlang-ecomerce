@@ -1,113 +1,144 @@
 package linhlang.product.service.impl;
 
+import linhlang.commons.aop.annotation.LockBusiness;
 import linhlang.commons.exceptions.BusinessException;
+import linhlang.commons.model.PageData;
+import linhlang.product.constants.CacheKey;
+import linhlang.product.constants.Errors;
 import linhlang.product.controller.request.ProductSaveReq;
+import linhlang.product.controller.request.QueryProductReq;
+import linhlang.product.controller.request.SaveVariantReq;
 import linhlang.product.model.*;
-import linhlang.product.model.Collection;
-import linhlang.product.repository.CollectionRepository;
-import linhlang.product.repository.ProductCollectionRepository;
-import linhlang.product.repository.ProductImageRepository;
-import linhlang.product.repository.entities.*;
-import linhlang.product.repository.jpa.CategoryRepository;
-import linhlang.product.repository.jpa.ProviderRepository;
+import linhlang.product.repository.CategoryRepository;
+import linhlang.product.repository.ProviderRepository;
 import linhlang.product.repository.ProductRepository;
+import linhlang.product.repository.VariantRepository;
+import linhlang.product.service.FileService;
 import linhlang.product.service.ProductService;
 import linhlang.product.service.mapper.*;
 import lombok.NonNull;
 import lombok.RequiredArgsConstructor;
+import org.apache.commons.lang3.StringUtils;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 
-import java.time.LocalDateTime;
+import java.io.IOException;
 import java.util.*;
-import java.util.function.Function;
-import java.util.stream.Collectors;
 
-import static linhlang.product.constants.Errors.PRODUCT_NOTFOUND;
 
 @Service
 @Transactional
 @RequiredArgsConstructor
 public class ProductServiceImpl implements ProductService {
 
+    private final VariantMapper variantMapper;
     private final ProductMapper productMapper;
-    private final ProviderMapper providerMapper;
-    private final CategoryMapper categoryMapper;
-    private final CollectionMapper collectionMapper;
-    private final ProductImageMapper productImageMapper;
 
     private final ProductRepository productRepository;
+    private final VariantRepository variantRepository;
     private final ProviderRepository providerRepository;
     private final CategoryRepository categoryRepository;
-    private final CollectionRepository collectionRepository;
-    private final ProductImageRepository productImageRepository;
-    private final ProductCollectionRepository productCollectionRepository;
+    private final FileService fileService;
+
+    public static final String PRODUCT_BUCKET = "product";
 
     @Override
     public Product createProduct(ProductSaveReq request) {
-        ProductEntity productEntity = productMapper.toEntity(request);
+        Provider provider = createIfNotExist(request.getProvider());
+        Category category = createIfNotExist(request.getCategory());
+        Set<Image> images = request.getImages();
 
-        var provider = findOrCreateProvider(request.getProvider());
-        productEntity.setProviderId(provider.getId());
+        String mainImg = images.stream()
+                .findFirst()
+                .map(Image::getUrl)
+                .orElse(null);
 
-        var category = findOrCreateCategory(request.getCategory());
-        productEntity.setCategoryId(category.getId());
+        Product product = productMapper.toEntity(request);
+        product.setImage(mainImg);
+        product.setProvider(provider);
+        product.setCategory(category);
+        productRepository.save(product);
 
-        productEntity.setId(UUID.randomUUID().toString());
-        productEntity.setCreateTime(LocalDateTime.now());
-        productRepository.save(productEntity);
+        product.setVariants(saveVariants(product, request.getVariants()));
 
-        //save collections for product
-        var collections = setCollections(productEntity, request.getCollections());
-        // save images for product
-        var images = setImages(productEntity, request.getImages());
-
-        return aggregate(productEntity, provider, category, images, collections);
+        return product;
     }
 
     @Override
+    @LockBusiness(business = "update_product", key = "#productId", timeout = 60 * 2)
+    @CacheEvict(cacheNames = CacheKey.PRODUCT, key = "#productId")
     public Product updateProduct(String productId, ProductSaveReq request) {
-        ProductEntity productEntity = productRepository.findById(productId)
-                .orElseThrow(() -> new BusinessException(PRODUCT_NOTFOUND));
+        Product product = productRepository.load(productId);
+        productMapper.update(product, request);
 
-        productMapper.update(productEntity, request);
+        Provider provider = createIfNotExist(request.getProvider());
+        Category category = createIfNotExist(request.getCategory());
+        product.setProvider(provider);
+        product.setCategory(category);
 
-        var provider = findOrCreateProvider(request.getProvider());
-        productEntity.setProviderId(provider.getId());
+        productRepository.save(product);
 
-        var category = findOrCreateCategory(request.getCategory());
-        productEntity.setCategoryId(category.getId());
+        saveVariants(product, request.getVariants());
 
-        productEntity.setUpdateTime(LocalDateTime.now());
-        productRepository.save(productEntity);
-
-        //save collections for product
-        var collections = setCollections(productEntity, request.getCollections());
-        // save images for product
-        var images = setImages(productEntity, request.getImages());
-
-        return aggregate(productEntity, provider, category, images, collections);
+        return product;
     }
 
     @Override
     @Transactional(readOnly = true)
+    @Cacheable(cacheNames = CacheKey.PRODUCT, key = "#productId", sync = true)
     public Product detail(String productId) {
-        Optional<ProductEntity> optProduct = productRepository.findById(productId);
-        if (optProduct.isEmpty()) {
-            throw new BusinessException(PRODUCT_NOTFOUND);
+        Product product = productRepository.load(productId);
+
+        if (product == null) {
+            throw new BusinessException(Errors.PRODUCT_NOTFOUND);
         }
 
-        ProductEntity productEntity = optProduct.get();
-        ProviderEntity providerEntity = providerRepository.findById(productEntity.getProviderId()).orElse(null);
-        CategoryEntity categoryEntity = categoryRepository.findById(productEntity.getCategoryId()).orElse(null);
-        List<ProductImageEntity> images = productImageRepository.findAllByProductId(productEntity.getId());
-        List<CollectionEntity> collections = collectionRepository.findAllByProductId(productEntity.getId());
-        return aggregate(productEntity, providerEntity, categoryEntity, images, collections);
+        product.setVariants(variantRepository.loadAll(productId));
+        return product;
     }
 
     @Override
-    public List<Product> query() {
-        return List.of();
+    @CacheEvict(cacheNames = CacheKey.PRODUCT, key = "#productId")
+    public Product delete(String productId) {
+        Product product = productRepository.load(productId);
+
+        if (product == null) {
+            throw new BusinessException(Errors.PRODUCT_NOTFOUND);
+        }
+
+        productRepository.delete(product.getId());
+        return product;
+    }
+
+    @Override
+    public PageData<Product> query(QueryProductReq request) {
+        return productRepository.query(request);
+    }
+
+    @Override
+    @CacheEvict(cacheNames = CacheKey.PRODUCT, key = "#productId")
+    public List<Image> uploadImages(String productId, MultipartFile[] files) throws IOException {
+        Product product = detail(productId);
+        if (product == null) {
+            throw new BusinessException(Errors.PRODUCT_NOTFOUND);
+        }
+
+        List<Image> images = new ArrayList<>();
+        for (MultipartFile file : files) {
+            String objectName = product.getId() + "/" + file.getOriginalFilename();
+            fileService.upload(PRODUCT_BUCKET, objectName, file);
+
+            Image image = new Image();
+            image.setUrl(PRODUCT_BUCKET + "/" + objectName);
+            images.add(image);
+        }
+
+        product.getImages().addAll(images);
+        productRepository.save(product);
+        return images;
     }
 
     /**
@@ -116,15 +147,17 @@ public class ProductServiceImpl implements ProductService {
      * @param provider provider received from request
      * @return provider
      */
-    public ProviderEntity findOrCreateProvider(@NonNull Provider provider) {
-        return Optional.ofNullable(provider.getId())
-                .flatMap(providerRepository::findById)
-                .orElseGet(() -> {
-                    ProviderEntity newProvider = new ProviderEntity();
-                    newProvider.setId(UUID.randomUUID().toString());
-                    newProvider.setName(provider.getName());
-                    return providerRepository.save(newProvider);
-                });
+    public Provider createIfNotExist(@NonNull Provider provider) {
+        if (StringUtils.isBlank(provider.getId())) {
+            providerRepository.save(provider);
+            return provider;
+        }
+
+        Provider existed = providerRepository.load(provider.getId());
+        if (existed == null) {
+            throw new BusinessException(Errors.PROVIDER_NOTFOUND);
+        }
+        return existed;
     }
 
     /**
@@ -133,93 +166,38 @@ public class ProductServiceImpl implements ProductService {
      * @param category category received from request
      * @return category
      */
-    public CategoryEntity findOrCreateCategory(@NonNull Category category) {
-        return Optional.ofNullable(category.getId())
-                .flatMap(categoryRepository::findById)
-                .orElseGet(() -> {
-                    CategoryEntity newCategory = new CategoryEntity();
-                    newCategory.setId(UUID.randomUUID().toString());
-                    newCategory.setName(category.getName());
-                    return categoryRepository.save(newCategory);
-                });
+    public Category createIfNotExist(@NonNull Category category) {
+        if (StringUtils.isBlank(category.getId())) {
+            categoryRepository.save(category);
+            return category;
+        }
+
+        Category existed = categoryRepository.load(category.getId());
+        if (existed == null) {
+            throw new BusinessException(Errors.CATEGORY_NOTFOUND);
+        }
+        return existed;
     }
 
     /**
-     * set collections for product
+     * create variants
      *
      * @param product     product
-     * @param collections collections
-     * @return joined collections
+     * @param variantReqs variant request info
+     * @return variants
      */
-    public List<CollectionEntity> setCollections(ProductEntity product, Set<Collection> collections) {
-        if (collections == null || collections.isEmpty()) {
-            return Collections.emptyList();
+    private Set<Variant> saveVariants(Product product, Set<SaveVariantReq> variantReqs) {
+        Set<Variant> variants = new LinkedHashSet<>();
+        for (SaveVariantReq variantReq : variantReqs) {
+            Variant variant = variantMapper.toEntity(variantReq);
+            variant.setTitle(StringUtils.defaultString("DEFAULT"));
+            variant.setProductId(product.getId());
+            variants.add(variant);
         }
-
-        var collectionIds = collections.stream().map(Collection::getId).collect(Collectors.toSet());
-        var validCollection = collectionRepository.findAllById(collectionIds);
-        List<ProductCollectionEntity> productCollectionEntities = validCollection.stream()
-                .map(collectionEntity -> {
-                    var productMapCollection = new ProductCollectionEntity();
-                    productMapCollection.setId(UUID.randomUUID().toString());
-                    productMapCollection.setCollectionId(collectionEntity.getId());
-                    productMapCollection.setProductId(product.getId());
-                    return productMapCollection;
-                })
-                .toList();
-        productCollectionRepository.saveAll(productCollectionEntities);
-        return validCollection;
+        variantRepository.saveAll(product.getId(), variants);
+        return variants;
     }
 
-    /**
-     * save images for product
-     *
-     * @param product product
-     * @param images  images
-     * @return saved images
-     */
-    public List<ProductImageEntity> setImages(ProductEntity product, Set<Image> images) {
-        if (images == null || images.isEmpty()) {
-            return Collections.emptyList();
-        }
-
-        // get current image for product as map {key: image id, value: image}
-        Map<String, ProductImageEntity> currentImgMap = productImageRepository.findAllByProductId(product.getId())
-                .stream()
-                .collect(Collectors.toMap(
-                        ProductImageEntity::getId,
-                        Function.identity()
-                ));
-
-        int index = 0;
-        List<ProductImageEntity> saveList = new LinkedList<>();
-        for (Image image : images) {
-            ProductImageEntity productImgEntity = currentImgMap.get(image.getId());
-            if (productImgEntity != null) { // case update image
-                productImageMapper.update(productImgEntity, image);
-            } else { // case create image
-                productImgEntity = productImageMapper.toEntity(image);
-                productImgEntity.setId(UUID.randomUUID().toString());
-                productImgEntity.setProductId(product.getId());
-            }
-            productImgEntity.setImageOrder(index++);
-            saveList.add(productImgEntity);
-        }
-
-        Set<String> savedId = saveList.stream().map(ProductImageEntity::getId).collect(Collectors.toSet());
-        List<String> deleteList = currentImgMap.keySet().stream()
-                .filter(element -> !savedId.contains(element))
-                .toList();
-        productImageRepository.deleteAllById(deleteList);
-        return productImageRepository.saveAll(saveList);
-    }
-
-    public Product aggregate(ProductEntity product, ProviderEntity provider, CategoryEntity category, List<ProductImageEntity> productImages, List<CollectionEntity> collections) {
-        Product result = productMapper.toModel(product);
-        result.setProvider(providerMapper.toModel(provider));
-        result.setCategory(categoryMapper.toModel(category));
-        result.setImages(new HashSet<>(productImageMapper.toModel(productImages)));
-        result.setCollections(new HashSet<>(collectionMapper.toModel(collections)));
-        return result;
-    }
 }
+
+
