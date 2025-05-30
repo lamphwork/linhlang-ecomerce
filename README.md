@@ -1,243 +1,294 @@
-# 🐳 Triển Khai Hệ Thống Microservices với Docker Swarm
+# 🐳 Triển Khai Hệ Thống Microservices với Docker Compose và Github Actions
 
-Hướng dẫn từng bước để build và triển khai hệ thống sử dụng Docker Swarm.
+Hướng dẫn từng bước để build và triển khai hệ thống sử dụng Docker Compose.
+
+## Setup docker hub repository
+
+Để các service có thể được build và đẩy lên Docker Hub tự động qua GitHub Actions, bạn cần thực hiện các bước sau:
+
+### 🧱Tạo repository cho từng service trên Docker Hub
+
+Truy cập https://hub.docker.com, đăng nhập, sau đó tạo 3 repository với các tên như sau:
+
+```
+product-service
+```
+
+```
+auth-service
+```
+
+```
+webconfig-service
+```
+
+⚠️ Lưu ý: Tên image dùng trong docker-compose.yml sẽ có dạng :
+
+```text
+docker-user/docker-repo
+```
+
+### Tạo Personal Token trên docker hub với quyền read & write
+![img_2.png](img_2.png)
+
+Generate và lưu token lại để dùng cho bước sau
+
+## ⚙️ Tạo cấu hình các dịch vụ(trên server)
+
+### Cấu trúc thư mục
+
+```text
+.
+├── docker-compose.yml
+├── .env
+├── product/
+│   ├── Dockerfile
+│   └── .env
+├── auth/
+│   ├── Dockerfile
+│   └── .env
+├── webconfig/
+│   ├── Dockerfile
+│   └── .env
+├── mysql_init_scripts/
+│   └── create_database.sql
+```
+
+### docker-compose.yml (thay docker-user bằng user docker hub)
+
+```yaml
+services:
+  redis:
+    image: redis:7.4.1
+    ports:
+      - '6379:6379'
+  database:
+    image: mysql:8.0
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 5s
+      timeout: 20s
+      retries: 5
+    ports:
+      - '3306:3306'
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      MYSQL_DATABASE: default
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./mysql_init_scripts:/docker-entrypoint-initdb.d
+  minio:
+    image: quay.io/minio/minio
+    ports:
+      - '9000:9000'
+      - '9001:9001'
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    volumes:
+      - minio_data:/data
+    command: server /data --console-address ":9001"
+  product-service:
+    restart: unless-stopped
+    image: docker-user/product-service
+    env_file:
+      - product/.env
+    ports:
+      - 8081:8080
+    depends_on:
+      database:
+        condition: service_healthy
+  webconfig-service:
+    restart: unless-stopped
+    image: docker-user/webconfig-service
+    env_file:
+      - webconfig/.env
+    ports:
+      - 8082:8080
+    depends_on:
+      database:
+        condition: service_healthy
+  auth-service:
+    restart: unless-stopped
+    image: docker-user/auth-service
+    env_file:
+      - auth/.env
+    ports:
+      - 8083:8080
+    depends_on:
+      - database
+volumes:
+  mysql_data:
+  minio_data:
+```
+
+Thay docker-user bằng tên người dùng Docker Hub của bạn.
+
+### .env (Cấu hình chung)
+
+```properties
+MYSQL_ROOT_PASSWORD=YOUR_ROOT_PASSWORD
+MYSQL_USER=YOUR_DB_USER
+MYSQL_PASSWORD=YOUR_DB_PASSWORD
+MYSQL_DATABASE=default
+
+MINIO_ROOT_USER=YOUR_MINIO_USER
+MINIO_ROOT_PASSWORD=YOUR_MINIO_PASS
+STORAGE_PUBLIC_HOT=${DOMAIN}/storage
+SECRET_KEY=YOUR_SECRET_KEY
+```
+
+### product/.env (Cấu hình cho product svice)
+
+```properties
+SPRING_PROFILES_ACTIVE=prod
+DB_URL=jdbc:mysql://database:3306/product
+DB_USER=root
+DB_PASS=${MYSQL_ROOT_PASSWORD}
+SHOW_SQL=true
+DB_POOL_SIZE=20
+DB_SHOW_SQL=true
+
+REDIS_ENABLE=false
+REDIS_NODES=redis:6379
+
+STORAGE_ENABLED=true
+STORAGE_HOST=http:minio:9000
+STORAGE_USER=${MINIO_ROOT_USER}
+STORAGE_PASS=${MINIO_ROOT_PASSWORD}
+STORAGE_PUBLIC_HOST=${STORAGE_PUBLIC_HOT}
+
+```
+
+### auth/.env (Cấu hình cho auth service)
+
+```properties
+SPRING_PROFILES_ACTIVE=prod
+DB_URL=jdbc:mysql://database:3306/auth
+DB_USER=root
+DB_PASS=${MYSQL_ROOT_PASSWORD}
+SHOW_SQL=true
+DB_POOL_SIZE=10
+DB_SHOW_SQL=true
+
+REDIS_ENABLE=false
+REDIS_NODES=redis:6379
+
+STORAGE_ENABLED=true
+STORAGE_HOST=http:minio:9000
+STORAGE_USER=${MINIO_ROOT_USER}
+STORAGE_PASS=${MINIO_ROOT_PASSWORD}
+STORAGE_PUBLIC_HOST=${STORAGE_PUBLIC_HOT}
+
+INIT_USER=YOUR_ADMIN_USER
+INIT_PASS=YOUR_ADMIN_PASSWORD
+```
+
+### webconfig/.env (Cấu hình cho webconfig service)
+
+```properties
+SPRING_PROFILES_ACTIVE=prod
+DB_URL=jdbc:mysql://database:3306/webconfig
+DB_USER=root
+DB_PASS=${MYSQL_ROOT_PASSWORD}
+SHOW_SQL=true
+DB_POOL_SIZE=10
+DB_SHOW_SQL=true
+
+REDIS_ENABLE=false
+REDIS_NODES=redis:6379
+
+STORAGE_ENABLED=true
+STORAGE_HOST=http:minio:9000
+STORAGE_USER=${MINIO_ROOT_USER}
+STORAGE_PASS=${MINIO_ROOT_PASSWORD}
+STORAGE_PUBLIC_HOST=${STORAGE_PUBLIC_HOT}
+```
+
+### mysql_init_scripts/create_database.sql
+
+```sql
+create database if not exists product;
+create database if not exists webconfig;
+create database if not exists auth;
+```
 
 ---
 
-## 📦 Build Dịch Vụ
+### Start các database và minio trước
 
-### Product Service
 ```bash
-docker build -t product-svc:latest -f product/Dockerfile .
+docker-compose up -d database minio
 ```
 
-### WebConfig Service
-```bash
-docker build -t web-config-svc:latest -f webconfig/Dockerfile .
-```
+## 🔄 Cấu hình CI/CD với GitHub Actions
 
-### Auth Service
-```bash
-docker build -t auth-svc:latest -f auth/Dockerfile .
-```
+### Thêm các secret vào setting của GitHub Repository
 
----
+![img.png](img.png)
 
-## ⚙️ Khởi Tạo Docker Swarm & Network
+| Secret          | Ý nghĩa                                    |
+|-----------------|--------------------------------------------|
+| DOCKER_TOKEN    | Personal token của docker đã lấy phía trên |
+| DOCKER_USERNAME | Tên người dùng Docker                      |
+| SSH_SERVER      | Địa chỉ IP server để deploy                |
+| SSH_USER        | Username đăng nhập server                  |
+| SSH_PASS        | Password đăng nhập server                  |
 
-### Init Docker Swarm
-```bash
-docker swarm init
-```
-
-### Tạo Network Overlay
-```bash
-docker network create --driver=overlay --attachable globalnet
-```
-
----
+## 🚀 Triển khai qua GitHub Actions
+Vào github actions trigger các workflow 
+- build auth service
+- build product service
+- build webconfig service
+![img_1.png](img_1.png)
 
 ## 🌐 Cấu Hình Gateway (NGINX)
 
-### Cấu trúc thư mục NGINX:
-```
-nginx/
-├── html/
-│   └── index.html
-├── nginx.conf
-└── vhost/
-```
-
 ### Cấu hình `nginx.conf`
-```nginx
-worker_processes auto;
 
-error_log /var/log/nginx/error.log warn;
-pid /var/run/nginx.pid;
-
-events {
-    worker_connections 1024;
+```text
+location ~ ^/api/product(.*) {
+    proxy_pass http://product-service:8080/api/v1$1$is_args$args;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
 }
 
-http {
-    resolver 127.0.0.11 valid=30s;
-    include /etc/nginx/mime.types;
-    default_type application/octet-stream;
+location ~ ^/api/webconfig(.*) {
+    proxy_pass http://webconfig-service:8080/api/v1$1$is_args$args;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+}
 
-    access_log /var/log/nginx/access.log;
-    sendfile on;
-    keepalive_timeout 65;
+location ~ ^/storage(.*) {
+    proxy_pass http://minio:9000$1$is_args$args;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+}
 
-    include /etc/nginx/vhost/*.conf;
+location ~ ^/api/auth(.*) {
+    proxy_pass http://auth-service:8080/api/v1$1$is_args$args;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+}
 
-    server {
-        listen 80;
-        server_name localhost;
+location ~ ^/ui-storage(.*) {
+    proxy_pass http://minio:9001$1$is_args$args;
+}
 
-        root /usr/share/nginx/html;
-
-        location ~ ^/api/product(.*) {
-            proxy_pass http://product-service:8080/api/v1$1$is_args$args;
-            proxy_http_version 1.1;
-            proxy_set_header Host $host;
-            proxy_set_header X-Real-IP $remote_addr;
-            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-            proxy_set_header X-Forwarded-Proto $scheme;
-        }
-
-        location ~ ^/api/webconfig(.*) {
-            proxy_pass http://webconfig-service:8080/api/v1$1$is_args$args;
-            proxy_http_version 1.1;
-            proxy_set_header Host $host;
-            proxy_set_header X-Real-IP $remote_addr;
-            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-            proxy_set_header X-Forwarded-Proto $scheme;
-        }
-        
-        location ~ ^/api/auth(.*) {
-            proxy_pass http://auth-service:8080/api/v1$1$is_args$args;
-            proxy_http_version 1.1;
-            proxy_set_header Host $host;
-            proxy_set_header X-Real-IP $remote_addr;
-            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-            proxy_set_header X-Forwarded-Proto $scheme;
-        }
-
-        location ~ ^/storage(.*) {
-            proxy_pass http://minio:9000$1$is_args$args;
-            proxy_set_header Host $host;
-            proxy_set_header X-Real-IP $remote_addr;
-        }
-
-        location ~ ^/ui-storage(.*) {
-            proxy_pass http://minio:9001$1$is_args$args;
-        }
-
-        location / {
-            index index.html index.htm;
-        }
-    }
+location / {
+    index index.html index.htm;
 }
 ```
 
-### Khởi chạy NGINX Gateway
-```bash
-docker service create \
-  --name gateway \
-  --publish 80:80 \
-  --network globalnet \
-  --mount type=bind,source=$(pwd)/nginx/html,target=/usr/share/nginx/html,readonly \
-  --mount type=bind,source=$(pwd)/nginx/nginx.conf,target=/etc/nginx/nginx.conf,readonly \
-  --mount type=bind,source=$(pwd)/nginx/vhost,target=/etc/nginx/vhost,readonly \
-  nginx:alpine
-```
 
----
-
-## 🗄️ Cài Đặt MySQL
-
-### Tạo thư mục lưu trữ:
-```bash
-mkdir database
-```
-
-### Khởi chạy MySQL:
-```bash
-docker service create \
-  --name mysql \
-  --network globalnet \
-  --env MYSQL_ROOT_PASSWORD={{YOUR_PASSWORD}} \
-  --mount type=bind,source=$(pwd)/database,target=/var/lib/mysql \
-  mysql:8.0
-```
-
----
-
-## ☁️ Cài Đặt MinIO
-
-### Tạo thư mục lưu trữ:
-```bash
-mkdir minio
-```
-
-### Khởi chạy MinIO:
-```bash
-docker service create \
-  --name minio \
-  --publish 9000:9000 \
-  --publish 9001:9001 \
-  --network globalnet \
-  --env MINIO_ROOT_USER={{YOUR_USER}} \
-  --env MINIO_ROOT_PASSWORD={{YOUR_PASSWORD}} \
-  --mount type=bind,source=$(pwd)/minio,target=/data \
-  quay.io/minio/minio:latest server /data --console-address ":9001"
-```
-
-> Truy cập MinIO UI: http://localhost:9001  
-> Đăng nhập
-
-### Tạo bucket `public` và cập nhật policy:
-```json
-{
-    "Version": "2012-10-17",
-    "Statement": [
-        {
-            "Effect": "Allow",
-            "Principal": {
-                "AWS": ["*"]
-            },
-            "Action": ["s3:GetObject"],
-            "Resource": ["arn:aws:s3:::public/*"]
-        }
-    ]
-}
-```
-
----
-
-## 🧩 Khởi Chạy Product Service
-```bash
-docker service create \
-  --name product-service \
-  --network globalnet \
-  --env DB_URL=jdbc:mysql://mysql:3306/product \
-  --env DB_USER=root \
-  --env DB_PASS={{YOUR_PASS}} \
-  --env DB_POOL_SIZE=50 \
-  --env STORAGE.ENABLED=true \
-  --env STORAGE.HOST=http://minio:9000 \
-  --env STORAGE.PUBLIC_HOST={{SERVER_DOMAIN}}/storage \
-  --env STORAGE_USER={{YOUR_USER}} \
-  --env STORAGE_PASS={{YOUR_PASS}} \
-  product-svc:latest
-```
-
----
-
-## ⚙️ Khởi Chạy WebConfig Service
-```bash
-docker service create \
-  --name webconfig-service \
-  --network globalnet \
-  --env DB_URL=jdbc:mysql://mysql:3306/webconfig \
-  --env DB_USER=root \
-  --env DB_PASS={{YOUR_PASS}} \
-  --env DB_POOL_SIZE=50 \
-  --env DB_SHOW_SQL=false \
-  --env REDIS_ENABLE=false \
-  --env STORAGE.ENABLED=true \
-  --env STORAGE.HOST=http://minio:9000 \
-  --env STORAGE.PUBLIC_HOST=http://{{SERVER_DOMAIN}}/storage \
-  --env STORAGE_USER={{YOUR_USER}} \
-  --env STORAGE_PASS={{YOUR_PASS}} \
-  web-config-svc:latest
-```
-
----
-
-## ✅ Hệ Thống Sẵn Sàng!
-
-- Product API: `http://localhost/api/product/...`
-- WebConfig API: `http://localhost/api/webconfig/...`
-- Truy cập file public MinIO: `http://localhost/storage/public/...`
-- Giao diện MinIO: `http://localhost:9001`
