@@ -33,7 +33,7 @@ jobs:
           push: 'true'
           tags: |
             ${{ secrets.DOCKER_USERNAME }}/product-service:latest
-            ${{ secrets.DOCKER_USERNAME }}/product-service:${{ steps.vars.TAG }}
+            ${{ secrets.DOCKER_USERNAME }}/product-service:${{ steps.vars.outputs.TAG }}
       - name: Deploy to server via SSH
         uses: appleboy/ssh-action@v1.0.0
         with:
