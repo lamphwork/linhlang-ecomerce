@@ -43,5 +43,4 @@ jobs:
           script: |
             docker pull ${{ secrets.DOCKER_USERNAME }}/product-service:latest
             cd /root/backend/micro-ecom
-            docker-compose down product-service
-            docker-compose up -d product-service
+            docker-compose up -d --force-recreate product-service
