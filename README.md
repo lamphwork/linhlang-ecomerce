@@ -52,6 +52,7 @@ Generate và lưu token lại để dùng cho bước sau
 │   └── .env
 ├── mysql_init_scripts/
 │   └── create_database.sql
+├── nginx.conf
 ```
 
 ### docker-compose.yml (thay docker-user bằng user docker hub)
@@ -79,6 +80,13 @@ services:
     volumes:
       - mysql_data:/var/lib/mysql
       - ./mysql_init_scripts:/docker-entrypoint-initdb.d
+  gateway:
+    image: nginx:latest
+    container_name: api-gateway
+    ports:
+      - '8888:80'
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
   minio:
     image: quay.io/minio/minio
     ports:
@@ -215,12 +223,107 @@ create database if not exists webconfig;
 create database if not exists auth;
 ```
 
+### nginx.conf
+```text
+events {}
+
+http {
+    upstream auth_service {
+        server auth-service:8080;
+    }
+
+    upstream product_service {
+        server product-service:8080;
+    }
+
+    upstream webconfig_service {
+        server webconfig-service:8080;
+    }
+
+    upstream storage_service {
+        server minio:9000;
+    }
+
+    upstream storage_ui {
+        server minio:9001;
+    }
+
+    server {
+        listen 80;
+
+        location ~ ^/api/product(.*) {
+            proxy_pass http://product_service/api/v1$1$is_args$args;
+            proxy_http_version 1.1;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+        }
+
+        location ~ ^/api/webconfig(.*) {
+            proxy_pass http://webconfig_service/api/v1$1$is_args$args;
+            proxy_http_version 1.1;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+        }
+
+        location ~ ^/storage(.*) {
+            proxy_pass http://storage_service$1$is_args$args;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+        }
+
+        location ~ ^/api/auth(.*) {
+            proxy_pass http://auth_service/api/v1$1$is_args$args;
+            proxy_http_version 1.1;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+        }
+
+        location ~ ^/ui-storage(.*) {
+            proxy_pass http://storage_ui$1$is_args$args;
+        }
+
+        location ~ ^/admin.*\.(gif|jpg|jpeg|png|bmp|swf)$ {
+            expires 30d;
+            proxy_pass https://linh-lang-nextjs.vercel.app;
+        }
+
+        location ~ ^/admin {
+            proxy_pass https://linh-lang-nextjs.vercel.app;
+            proxy_set_header Host linh-lang-nextjs.vercel.app;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_ssl_server_name on;
+        }
+
+        location / {
+            proxy_pass https://linh-lang-storefront.vercel.app;
+            proxy_set_header Host linh-lang-storefront.vercel.app;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_ssl_server_name on;
+        }
+
+        location ~ .*\.(gif|jpg|jpeg|png|bmp|swf)$ {
+            expires 30d;
+            proxy_pass https://linh-lang-storefront.vercel.app;
+        }
+    }
+}
+```
 ---
 
-### Start các database và minio trước
+### Start các database, gateway và minio trước
 
 ```bash
-docker-compose up -d database minio
+docker-compose up -d database gateway minio
 ```
 
 ## 🔄 Cấu hình CI/CD với GitHub Actions
@@ -244,51 +347,6 @@ Vào github actions trigger các workflow
 - build webconfig service
 ![img_1.png](img_1.png)
 
-## 🌐 Cấu Hình Gateway (NGINX)
 
-### Cấu hình `nginx.conf`
-
-```text
-location ~ ^/api/product(.*) {
-    proxy_pass http://product-service:8080/api/v1$1$is_args$args;
-    proxy_http_version 1.1;
-    proxy_set_header Host $host;
-    proxy_set_header X-Real-IP $remote_addr;
-    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-    proxy_set_header X-Forwarded-Proto $scheme;
-}
-
-location ~ ^/api/webconfig(.*) {
-    proxy_pass http://webconfig-service:8080/api/v1$1$is_args$args;
-    proxy_http_version 1.1;
-    proxy_set_header Host $host;
-    proxy_set_header X-Real-IP $remote_addr;
-    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-    proxy_set_header X-Forwarded-Proto $scheme;
-}
-
-location ~ ^/storage(.*) {
-    proxy_pass http://minio:9000$1$is_args$args;
-    proxy_set_header Host $host;
-    proxy_set_header X-Real-IP $remote_addr;
-}
-
-location ~ ^/api/auth(.*) {
-    proxy_pass http://auth-service:8080/api/v1$1$is_args$args;
-    proxy_http_version 1.1;
-    proxy_set_header Host $host;
-    proxy_set_header X-Real-IP $remote_addr;
-    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-    proxy_set_header X-Forwarded-Proto $scheme;
-}
-
-location ~ ^/ui-storage(.*) {
-    proxy_pass http://minio:9001$1$is_args$args;
-}
-
-location / {
-    index index.html index.htm;
-}
-```
 
 
