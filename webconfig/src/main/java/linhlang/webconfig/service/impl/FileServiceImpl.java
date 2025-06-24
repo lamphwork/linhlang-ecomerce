@@ -1,36 +1,43 @@
 package linhlang.webconfig.service.impl;
 
-import io.minio.BucketExistsArgs;
-import io.minio.MakeBucketArgs;
-import io.minio.MinioClient;
-import io.minio.PutObjectArgs;
+import io.minio.*;
+import io.minio.errors.*;
+import jakarta.annotation.PostConstruct;
 import linhlang.commons.storage.StorageProperties;
+import linhlang.commons.storage.StorageService;
 import linhlang.webconfig.service.FileService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.io.IOException;
+import java.security.InvalidKeyException;
+import java.security.NoSuchAlgorithmException;
 import java.util.Random;
 
 @Service
 @RequiredArgsConstructor
 public class FileServiceImpl implements FileService {
 
-    private final MinioClient minioClient;
-    private final StorageProperties storageProperties;
+    private final StorageService storageService;
     public static final String BUCKET = "blog";
+
+    @PostConstruct
+    public void postConstruct() throws ServerException, InsufficientDataException, ErrorResponseException, IOException, NoSuchAlgorithmException, InvalidKeyException, InvalidResponseException, XmlParserException, InternalException {
+        storageService.createPrivateBucket(BUCKET);
+    }
 
     @Override
     public String upload(MultipartFile file) {
         String nameRandom = generateRandomLetters(6);
         String objectName = nameRandom + "/" + file.getOriginalFilename();
         upload(BUCKET, objectName, file);
-        return storageProperties.getPublicUrl() + "/" + BUCKET + "/" + objectName;
+        return storageService.getProperties().getPublicUrl() + "/" + BUCKET + "/" + objectName;
     }
 
     public void upload(String bucket, String object, MultipartFile file) {
         try {
-            minioClient.putObject(
+            storageService.getMinioClient().putObject(
                     PutObjectArgs.builder()
                             .bucket(bucket)
                             .object(object)
@@ -45,14 +52,14 @@ public class FileServiceImpl implements FileService {
 
     public void createBucketIfNotExists(String bucket) {
         try {
-            boolean exists = minioClient.bucketExists(
+            boolean exists = storageService.getMinioClient().bucketExists(
                     BucketExistsArgs.builder()
                             .bucket(bucket)
                             .build()
             );
 
             if (!exists) {
-                minioClient.makeBucket(
+                storageService.getMinioClient().makeBucket(
                         MakeBucketArgs.builder()
                                 .bucket(bucket)
                                 .build()

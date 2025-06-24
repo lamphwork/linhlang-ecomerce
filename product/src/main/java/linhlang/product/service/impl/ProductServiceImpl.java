@@ -1,8 +1,11 @@
 package linhlang.product.service.impl;
 
+import io.minio.errors.*;
+import jakarta.annotation.PostConstruct;
 import linhlang.commons.aop.annotation.LockBusiness;
 import linhlang.commons.exceptions.BusinessException;
 import linhlang.commons.model.PageData;
+import linhlang.commons.storage.StorageService;
 import linhlang.product.constants.CacheKey;
 import linhlang.product.constants.Errors;
 import linhlang.product.controller.request.ProductSaveReq;
@@ -26,6 +29,8 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
+import java.security.InvalidKeyException;
+import java.security.NoSuchAlgorithmException;
 import java.util.*;
 
 
@@ -42,8 +47,14 @@ public class ProductServiceImpl implements ProductService {
     private final ProviderRepository providerRepository;
     private final CategoryRepository categoryRepository;
     private final FileService fileService;
+    private final StorageService storageService;
 
     public static final String PRODUCT_BUCKET = "product";
+
+    @PostConstruct
+    public void makeBucket() throws ServerException, InsufficientDataException, ErrorResponseException, IOException, NoSuchAlgorithmException, InvalidKeyException, InvalidResponseException, XmlParserException, InternalException {
+        storageService.createPrivateBucket(PRODUCT_BUCKET);
+    }
 
     @Override
     public Product createProduct(ProductSaveReq request) {
