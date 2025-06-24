@@ -2,6 +2,7 @@ package linhlang.commons.storage;
 
 import io.minio.*;
 import io.minio.errors.*;
+import jakarta.annotation.PostConstruct;
 import linhlang.commons.utils.UrlUtils;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
@@ -25,6 +26,15 @@ public class StorageService {
     public final String PUBLIC_BUCKET = "public";
     private final MinioClient minioClient;
     private final StorageProperties properties;
+
+    @PostConstruct
+    public void initPublicBucket() throws ServerException, InsufficientDataException, ErrorResponseException, IOException, NoSuchAlgorithmException, InvalidKeyException, InvalidResponseException, XmlParserException, InternalException {
+        try {
+            createPrivateBucket(PUBLIC_BUCKET);
+        } catch (Exception e) {
+            log.error("Failed to create private bucket", e);
+        }
+    }
 
     public void createPrivateBucket(String bucketName) throws ServerException, InsufficientDataException, ErrorResponseException, IOException, NoSuchAlgorithmException, InvalidKeyException, InvalidResponseException, XmlParserException, InternalException {
         if (minioClient.bucketExists(BucketExistsArgs.builder().bucket(bucketName).build())) {
