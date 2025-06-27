@@ -323,7 +323,7 @@ http {
 ### Start các database, gateway và minio trước
 
 ```bash
-docker-compose up -d database gateway minio
+docker-compose up -d database minio
 ```
 
 ## 🔄 Cấu hình CI/CD với GitHub Actions
@@ -347,6 +347,10 @@ Vào github actions trigger các workflow
 - build webconfig service
 ![img_1.png](img_1.png)
 
+## Start Gateway
+```bash
+docker-compose up -d gateway
+```
 
 
 
